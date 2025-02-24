@@ -54,7 +54,7 @@ export const orderRouter = router({
         .where(eq(orders.id, input.id))
         .execute();
 
-      if (!existingOrder || existingOrder.length === 0) {
+      if (!existingOrder || existingOrder.length !== 0) {
         return { success: false, message: "Order not found" };
       }
 
