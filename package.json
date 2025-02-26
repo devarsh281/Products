@@ -1,0 +1,11 @@
+{
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  },
+"name": "my-turbo-repo",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd client && npm run dev", 
+    "dev:backend": "cd backend && nodemon"     
+  }
+}

@@ -9,19 +9,24 @@ import { eq } from "drizzle-orm";
 
 const saveImage = async (imageUrl: string): Promise<string | null> => {
   try {
-    const { data, headers } = await axios.get(imageUrl, { responseType: "arraybuffer" });
+    const { data, headers } = await axios.get(imageUrl, {
+      responseType: "arraybuffer",
+    });
     const contentType = headers["content-type"];
-    const extension = contentType ? contentType.split("/")[1] : "jpg"; 
+    if (!contentType || !contentType.startsWith("image/")) {
+      console.error("Invalid image type:", contentType);
+      return null;
+    }
 
+    const extension = contentType.split("/")[1] || "jpg";
     const fileName = `product_${Date.now()}.${extension}`;
+    const uploadPath = path.join(__dirname, "../../uploads", fileName);
 
-    const uploadPath = path.join(__dirname, "../../uploads", fileName); 
     if (!fs.existsSync(path.dirname(uploadPath))) {
       fs.mkdirSync(path.dirname(uploadPath), { recursive: true });
     }
 
     fs.writeFileSync(uploadPath, Buffer.from(data));
-
     return `/uploads/${fileName}`;
   } catch (error) {
     console.error("Error saving image:", error);
@@ -39,43 +44,47 @@ export const productRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      let imageUrl = input.imageUrl;
+      try {
+        let imageUrl = input.imageUrl ? await saveImage(input.imageUrl) : null;
 
-      if (imageUrl) {
-        const savedImagePath = await saveImage(imageUrl);
-        if (savedImagePath) {
-          imageUrl = savedImagePath;
-        } else {
-          return { success: false, message: "Failed to save the image." };
-        }
+        await db.insert(products).values({ ...input, imageUrl });
+
+        return { success: true, message: "Product added successfully" };
+      } catch (error) {
+        console.error("Error adding product:", error);
+        return { success: false, message: "Database error" };
       }
-
-      await db.insert(products).values({ ...input, imageUrl });
-      return { success: true, message: "Product added successfully" };
     }),
 
   getAll: publicProcedure.query(async () => {
-    const allProducts = await db.select().from(products).execute();
-    return { success: true, products: allProducts };
+    try {
+      const allProducts = await db.select().from(products);
+      console.log("Fetched products:", allProducts);
+      return { success: true, products: allProducts };
+    } catch (error) {
+      console.error("Error fetching products:", error);
+      return { success: false, message: "Failed to retrieve products" };
+    }
   }),
 
   getById: publicProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.coerce.number() }))
     .query(async ({ input }) => {
-      if (!input || !input.id) {
-        return { success: false, message: "Invalid input" };
-      }
-      const { id } = input;
-      const product = await db
-        .select()
-        .from(products)
-        .where(eq(products.id, id))
-        .execute();
+      try {
+        console.log(input.id);
+        const product =
+          (await db.select().from(products).where(eq(products.id, input.id))) ||
+          [];
 
-      if (product.length > 0) {
-        return { success: true, product: product[0] };
-      } else {
-        return { success: false, message: "Product not found" };
+        console.log(product);
+        if (product.length > 0) {
+          return { success: true, product: product };
+        } else {
+          return { success: false, message: "Product not found" };
+        }
+      } catch (error) {
+        console.error("Error fetching product:", error);
+        return { success: false, message: "Database error" };
       }
     }),
 
@@ -89,29 +98,69 @@ export const productRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const { id,  ...updates } = input;
+      try {
+        const { id, ...updates } = input;
 
-      if (updates.imageUrl) {
-        const savedImagePath = await saveImage(updates.imageUrl);
-        if (savedImagePath) {
-          updates.imageUrl = savedImagePath;
-        } else {
-          return { success: false, message: "Failed to save the image." };
+        const productExists = await db
+          .select()
+          .from(products)
+          .where(eq(products.id, id));
+        if (productExists.length === 0) {
+          return { success: false, message: "Product not found" };
         }
-      }
 
-      if (Object.keys(updates).length === 0) {
-        return { success: false, message: "No updates provided" };
-      }
+        if (updates.imageUrl) {
+          const savedImagePath = await saveImage(updates.imageUrl);
+          if (savedImagePath) {
+            updates.imageUrl = savedImagePath;
+          }
+        }
 
-      await db.update(products).set(updates).where(eq(products.id, id)).execute();
-      return { success: true, message: "Product updated successfully" };
+        await db.update(products).set(updates).where(eq(products.id, id));
+        return { success: true, message: "Product updated successfully" };
+      } catch (error) {
+        console.error("Error updating product:", error);
+        return { success: false, message: "Database error" };
+      }
     }),
+
+    
 
   delete: publicProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
-      await db.delete(products).where(eq(products.id, input.id)).execute();
-      return { success: true, message: "Product deleted successfully" };
+      console.log("Input received for deletion:", input);
+
+      try {
+        const productExists = await db
+          .select()
+          .from(products)
+          .where(eq(products.id, input.id));
+
+        if (productExists.length === 0) {
+          return { success: false, message: "Product not found" };
+        }
+        await db.delete(products).where(eq(products.id, input.id));
+
+        return { success: true, message: "Product deleted successfully" };
+      } catch (error) {
+        console.error("Error deleting product:", error);
+        return { success: false, message: "Database error" };
+      }
     }),
+
+  deleteAll: publicProcedure.mutation(async () => {
+    try {
+      await db.delete(products);
+      return {
+        success: true,
+        message: "All products and related orders deleted successfully",
+      };
+    } catch (error) {
+      console.error("Error deleting all products:", error);
+      return { success: false, message: "Database error" };
+    }
+  }),
+
+
 });

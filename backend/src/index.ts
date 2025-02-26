@@ -4,34 +4,29 @@ import * as trpcExpress from '@trpc/server/adapters/express';
 import { productRouter } from "./routers/product";
 import { orderRouter } from "./routers/order";
 import { renderTrpcPanel } from "trpc-ui";
-import { inferRouterInputs, inferRouterOutputs, initTRPC } from "@trpc/server";
-import { router } from "./trpc";
+import { initTRPC } from "@trpc/server";
+import superjson from "superjson";
+
 
 const app = express();
-app.use(cors());
+app.use(cors(
+  {
+    origin: "http://localhost:5173",
+    credentials: true,
+  }
+));
 app.use(express.json());
 
-const PORT = process.env.PORT || 8081;
-
 const t = initTRPC.create({
-  errorFormatter: ({ shape }) => {
-    return {
-      ...shape,
-      data: {
-        ...shape.data,
-      },
-    };
-  },
+  transformer: superjson, 
 });
 
 app.use("/uploads", express.static("uploads"));
 
-export const appRouter = t.router({
+const appRouter = t.router({
   product: productRouter,
   order: orderRouter,
 });
-
-
 
 const createContext = ({ req, res }: { req: express.Request; res: express.Response }) => {
   console.log('Context initialized');
@@ -51,7 +46,7 @@ app.use("/panel", (_, res) => {
   try {
     res.send(
       renderTrpcPanel(appRouter, {
-        url: `http://localhost:${PORT}/trpc`,
+        url: `http://localhost:8082`,
       })
     );
   } catch (error) {
@@ -60,9 +55,14 @@ app.use("/panel", (_, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.send('API is running');
+});
 
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const PORT = Number(process.env.PORT) || 8081;
+app.listen(PORT, () => {
+  console.log(`Server running on Port:${PORT}`);
+});
+
 
 export type AppRouter = typeof appRouter;
-export type RouterInput = inferRouterInputs<AppRouter>;
-export type RouterOutput = inferRouterOutputs<AppRouter>;
